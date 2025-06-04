@@ -14,6 +14,8 @@ import {
   collection,
   getDocs,
   updateDoc,
+  setDoc,
+  serverTimestamp,
   deleteDoc,
   doc,
 } from 'firebase/firestore';
@@ -46,6 +48,36 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
       owner: doc.data().owner,
     }));
     setPlates(data);
+  };
+
+  const handleBlacklist = (plateId: string, plateText: string) => {
+    Alert.alert(
+      'Kara Listeye Ekle',
+      `"${plateText}" plakalı aracı kara listeye eklemek istediğinize emin misiniz?`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Evet',
+          onPress: async () => {
+            try {
+              // 1. Kara listeye ekle
+              setPlates((prev) => prev.filter((plate) => plate.id !== plateId));
+              await setDoc(doc(db, 'blacklist', plateText), {
+                plate: plateText,
+                timestamp: serverTimestamp(),
+              });
+
+              // 2. Kayıtlı plakalar koleksiyonundan sil
+              await deleteDoc(doc(db, 'plates', plateId));
+
+              console.log('🚫 Kara listeye taşındı:', plateText);
+            } catch (error) {
+              console.error('Hata oluştu:', error);
+            }
+          },
+        },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -137,6 +169,11 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
                 <TouchableOpacity onPress={() => handleDelete(item.id)}>
                   <Text style={styles.delete}>🗑️</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => handleBlacklist(item.id, item.plate)}>
+                  <Text style={{ color: 'red', marginLeft: 10 }}>🚫</Text>
+                </TouchableOpacity>
+
               </View>
             )
           }

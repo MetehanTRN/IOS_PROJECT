@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert} from 'react-native';
 import { db } from '../firebaseConfig';
-import {onSnapshot, query, orderBy, limit} from 'firebase/firestore';
+import {onSnapshot, query, orderBy, limit, getDoc, deleteDoc} from 'firebase/firestore';
 import { useTheme, Switch, Avatar, Menu, IconButton } from 'react-native-paper';
 import AddPlateModal from '../components/AddPlateModal';
 import EditPlatesModal from '../components/EditPlatesModal';
@@ -18,7 +18,9 @@ import { useRef } from 'react';
 import imageList from '../assets/test-plates/testImages.json';
 import { imageMap } from '../imageMap';
 import BlackListModal from '../components/BlackListModal';
-
+import { setDoc, doc } from "firebase/firestore";
+import * as FileSystem from 'expo-file-system';
+import { normalizePlate } from '../utils/normalizePlate';
 
 const screenWidth = Dimensions.get('window').width;
 const cardWidth = (screenWidth - 60) / 2;
@@ -42,12 +44,31 @@ export default function HomeScreen() {
   const testImages = imageList.map(name => imageMap[name]).filter(Boolean);
   const [blacklistModalVisible, setBlacklistModalVisible] = useState(false);
   const [blacklistedPlates, setBlacklistedPlates] = useState<string[]>([]);
+  const [blacklistCount, setBlacklistCount] = useState(0);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'plates'), (snapshot) => {
       setPlateCount(snapshot.size);
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'blacklist'), (snapshot) => {
+      setBlacklistCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+
+  useEffect(() => {
+    const fetchBlacklistCount = async () => {
+      const snapshot = await getDocs(collection(db, "blacklist"));
+      setBlacklistCount(snapshot.size);
+    };
+
+    fetchBlacklistCount();
   }, []);
 
   useEffect(() => {
@@ -64,7 +85,7 @@ export default function HomeScreen() {
     const q = query(
       collection(db, 'entries'),
       orderBy('timestamp', 'desc'),
-      limit(1)
+      limit(15)
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -135,10 +156,11 @@ export default function HomeScreen() {
                           Alert.alert("⚠️ Zaten Eklendi", "Bu plaka zaten kara listede.");
                         } else {
                           // ✅ Eğer yoksa ekle
-                          await addDoc(collection(db, "blacklist"), {
-                            plate,
+                          await setDoc(doc(db, "blacklist", plate.toUpperCase()), {
+                            plate: plate.toUpperCase(),
                             timestamp: serverTimestamp(),
                           });
+
                           Alert.alert("✔️ Başarılı", "Plaka kara listeye eklendi.");
                         }
                       } catch (err) {
@@ -175,6 +197,31 @@ export default function HomeScreen() {
 
   const recognizeSamplePlates = async () => {
 
+    // 🔄 Eğer 50'den fazla işlenmiş resim varsa, her şeyi temizle
+    const processedSnapshot = await getDocs(collection(db, "processed_images"));
+
+    if (processedSnapshot.size >= 50) {
+      console.log("⚠️ 50'den fazla kayıt bulundu, Firestore ve klasör temizleniyor...");
+
+      // 1️⃣ Firestore'daki kayıtları sil
+      const deleteOps = processedSnapshot.docs.map((doc) => deleteDoc(doc.ref));
+      await Promise.all(deleteOps);
+
+      // 2️⃣ Klasördeki karşılık gelen resimleri sil (uygunsa)
+      for (const doc of processedSnapshot.docs) {
+        const fileName = doc.data().name;
+        const filePath = FileSystem.documentDirectory + "test-plates/" + fileName;
+
+        const fileInfo = await FileSystem.getInfoAsync(filePath);
+        if (fileInfo.exists) {
+          await FileSystem.deleteAsync(filePath);
+          console.log("🗑️ Silindi:", fileName);
+        }
+      }
+
+      console.log("✅ Tüm veriler ve dosyalar sıfırlandı.");
+    }
+
     for (let i = 0; i < testImages.length; i++) {
       const image = testImages[i];
       const uri = Image.resolveAssetSource(image).uri;
@@ -189,8 +236,26 @@ export default function HomeScreen() {
 
       const result = await recognizePlate(base64);
       const plate = result?.results?.[0]?.plate;
+      const normalizedPlate = normalizePlate(plate);
 
-      if (blacklistedPlates.includes(plate.toLowerCase())) {
+      // 🔁 Daha önce bu resim işlenmiş mi kontrol et
+      const fileName = image.name || `plate${i + 1}.jpg`; // image.name gelmiyorsa sırayla ver
+      const processedRef = doc(db, "processed_images", fileName);
+      const processedSnap = await getDoc(processedRef);
+
+      if (processedSnap.exists()) {
+        console.log("✅ Zaten işlenmiş:", fileName);
+        continue; // bu resmi atla
+      }
+
+      // ✅ Yeni işlenmişse Firestore’a ekle
+      await setDoc(processedRef, {
+        name: fileName,
+        timestamp: serverTimestamp(),
+      });
+
+
+      if (blacklistedPlates.some(p => normalizePlate(p) === normalizedPlate)) {
         console.log("⛔ Kara listede, geçiliyor:", plate);
         continue; // veya return if içinde
       }
@@ -198,15 +263,16 @@ export default function HomeScreen() {
 
       if (plate) {
 
-        if (blacklistedPlates.includes(plate.toLowerCase())) {
+        if (blacklistedPlates.some(p => normalizePlate(p) === normalizedPlate)) {
           console.log("⛔ Kara listede, işlenmiyor:", plate);
           continue; 
         }// bu resmi atla
         
         const platesSnapshot = await getDocs(collection(db, 'plates'));
         const matched = platesSnapshot.docs.find((doc) =>
-          doc.data().plate?.toLowerCase() === plate.toLowerCase()
+          normalizePlate(doc.data().plate) === normalizedPlate
         );
+
 
         const status = matched ? 'Giriş Başarılı' : 'Erişim Reddedildi';
 
@@ -264,6 +330,11 @@ export default function HomeScreen() {
         <View style={[styles.summaryCard, { backgroundColor: isDark ? '#0288d1' : '#00bcd4' }]}>
           <Text style={styles.cardTitle}>Toplam Kayıtlı Plaka</Text>
           <Text style={styles.cardNumber}>{plateCount}</Text>
+        </View>
+        
+        <View style={[styles.summaryCard, { backgroundColor: isDark ? '#ff4d4d' : '#c0392b' }]}>
+          <Text style={styles.cardTitle}>Kara Listedeki Plaka</Text>
+          <Text style={styles.cardNumber}>{blacklistCount}</Text>
         </View>
 
         {lastEntry && (

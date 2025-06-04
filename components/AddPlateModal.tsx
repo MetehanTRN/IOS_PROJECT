@@ -13,21 +13,35 @@ import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useTheme } from 'react-native-paper';
 import { useEffect } from 'react';
+import { deleteDoc, doc } from "firebase/firestore";
+import { query, where, getDocs } from "firebase/firestore";
+import { normalizePlate } from '../utils/normalizePlate';
+import {
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 
-interface Props {
+
+type Props = {
   visible: boolean;
   onClose: () => void;
-  prefillPlate: string;
-}
+  prefillPlate?: string;
+};
 
 export default function AddPlateModal({ visible, onClose, prefillPlate }: Props) {
-  const [plate, setPlate] = useState('');
+  
   useEffect(() => {
-    if (prefillPlate) {
-      setPlate(prefillPlate);
+    if (visible) {
+      setPlate(prefillPlate || '');
+      setOwner('');
+      setError('');
     }
-  }, [prefillPlate]);
+  }, [visible, prefillPlate]);
+
+  const [plate, setPlate] = useState('');
   const [owner, setOwner] = useState('');
+  const [error, setError] = useState('');
   const { dark } = useTheme();
 
   const handleAdd = () => {
@@ -42,30 +56,60 @@ export default function AddPlateModal({ visible, onClose, prefillPlate }: Props)
           text: 'Evet',
           onPress: async () => {
             try {
+              const plateQuery = query(
+                collection(db, "plates"),
+                where("plate", "==", plate.trim().toUpperCase())
+              );
+              const existing = await getDocs(plateQuery);
+
+              if (!existing.empty) {
+                setError("⚠️ Bu plaka zaten kayıtlı.");
+                return;
+              }
+
               const newPlate = {
-                plate: plate.trim().toUpperCase(),
+                plate: normalizePlate(plate),
                 owner: owner.trim(),
                 timestamp: serverTimestamp(),
               };
-              await addDoc(collection(db, 'plates'), newPlate);
+
+              await addDoc(collection(db, "plates"), newPlate);
+              const blacklistRef = doc(db, "blacklist", newPlate.plate);
+              await deleteDoc(blacklistRef);
+              
               setPlate('');
               setOwner('');
               onClose();
             } catch (error) {
-              console.error('Plaka eklenemedi:', error);
+              console.error("Plaka eklenemedi:", error);
+              setError("❌ Plaka eklenemedi.");
             }
-          },
-        },
+          }
+        }
+
       ]
     );
   };
+
+    useEffect(() => {
+    if (visible) {
+      setPlate('');
+      setOwner('');
+      setError('');
+    }
+  }, [visible]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={[styles.container, { backgroundColor: dark ? '#1e1e1e' : '#fff' }]}>
           <Text style={[styles.title, { color: dark ? '#fff' : '#000' }]}>➕ Plaka Ekle</Text>
-
+          
+          {error !== "" && (
+            <Text style={{ color: 'red', textAlign: 'center', marginBottom: 8 }}>
+              {error}
+            </Text>
+          )}
           <TextInput
             style={[styles.input, { color: dark ? '#fff' : '#000', borderColor: dark ? '#555' : '#ccc' }]}
             placeholder="Plaka"
