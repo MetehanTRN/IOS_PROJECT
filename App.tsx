@@ -1,46 +1,52 @@
-// App.tsx
+// App.tsx – Uygulamanın giriş noktası
 
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native'; // Sayfalar arası geçiş
-import { createNativeStackNavigator } from '@react-navigation/native-stack'; // Stack navigasyon
-import AutoScanScreen from './screens/AutoScanScreen';
+import { NavigationContainer } from '@react-navigation/native'; // Sayfalar arası geçiş sağlar
+import { createNativeStackNavigator } from '@react-navigation/native-stack'; // Stack yapılı navigasyon sistemi
 
-// Ekranlar
+// Uygulamadaki ekranlar
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
-
-// Tema sağlayıcısı (Paper UI için)
+// React Native Paper için tema sağlayıcısı
 import { PaperProvider } from 'react-native-paper';
 
-// Tema context’i – bizim yazdığımız geçişli tema sistemi
+// Kendi oluşturduğumuz tema context'i (dark/light geçişi vs.)
 import { ThemeProvider, useThemeContext } from './contexts/ThemeContext';
-import AuthLoading from './screens/AuthLoading';
+import AuthLoading from './screens/AuthLoading'; // Giriş kontrolü yapılacak yüklenme ekranı
 
-// Stack navigator oluştur
+// Navigasyon için stack yapısı oluşturuluyor
 const Stack = createNativeStackNavigator();
 
-// Ana bileşen – uygulamanın giriş noktası
+// Ana bileşen – Uygulamanın dış katmanını saran yapı
 export default function App() {
   return (
-    // Tema sistemini tüm uygulamaya saran context
+    // Tema context'i sağlayıcı (tüm uygulamada erişilebilir hale getirir)
     <ThemeProvider>
       <AppWithTheme />
     </ThemeProvider>
   );
 }
 
-// Tema context’inden temayı alıp Paper ve Navigation ile birlikte uygulamaya ver
+// Tema context'inden alınan tema ile Navigation + Paper birleşimi
 function AppWithTheme() {
   const { theme } = useThemeContext();
 
   return (
     <PaperProvider theme={theme}>
       <NavigationContainer>
-        <Stack.Navigator initialRouteName="AuthLoading" screenOptions={{ headerShown: false }}>
+        <Stack.Navigator
+          initialRouteName="AuthLoading"
+          screenOptions={{ headerShown: false }}
+        >
+          {/* Giriş yapılmış mı kontrol eden ekran */}
           <Stack.Screen name="AuthLoading" component={AuthLoading} />
+
+          {/* Giriş ekranı */}
           <Stack.Screen name="Login" component={LoginScreen} />
+
+          {/* Ana ekran */}
           <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="AutoScan" component={AutoScanScreen} />
+
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

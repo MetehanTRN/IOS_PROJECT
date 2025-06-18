@@ -1,4 +1,4 @@
-// EditPlatesModal.tsx - Temaya uyumlu hale getirildi
+// EditPlatesModal.tsx - Plaka düzenleme, silme, kara listeye ekleme modalı
 import React, { useEffect, useState } from 'react';
 import {
   Modal,
@@ -40,6 +40,7 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
   const [editedOwner, setEditedOwner] = useState('');
   const { dark } = useTheme();
 
+  // Veritabanından tüm plakaları çek
   const fetchPlates = async () => {
     const snapshot = await getDocs(collection(db, 'plates'));
     const data = snapshot.docs.map((doc) => ({
@@ -50,6 +51,7 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
     setPlates(data);
   };
 
+  // Bir plakayı kara listeye ekle ve kayıttan çıkar
   const handleBlacklist = (plateId: string, plateText: string) => {
     Alert.alert(
       'Kara Listeye Ekle',
@@ -60,16 +62,12 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
           text: 'Evet',
           onPress: async () => {
             try {
-              // 1. Kara listeye ekle
               setPlates((prev) => prev.filter((plate) => plate.id !== plateId));
               await setDoc(doc(db, 'blacklist', plateText), {
                 plate: plateText,
                 timestamp: serverTimestamp(),
               });
-
-              // 2. Kayıtlı plakalar koleksiyonundan sil
               await deleteDoc(doc(db, 'plates', plateId));
-
               console.log('🚫 Kara listeye taşındı:', plateText);
             } catch (error) {
               console.error('Hata oluştu:', error);
@@ -80,70 +78,80 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
     );
   };
 
+  // Modal açıldığında plakaları çek
   useEffect(() => {
-    if (visible) {
-      fetchPlates();
-    }
+    if (visible) fetchPlates();
   }, [visible]);
 
+  // Güncelleme işlemi
   const handleUpdate = (id: string) => {
-    Alert.alert(
-      'Emin misiniz?',
-      'Bu plakayı güncellemek istediğinize emin misiniz?',
-      [
-        { text: 'İptal', style: 'cancel' },
-        {
-          text: 'Evet',
-          onPress: async () => {
-            const ref = doc(db, 'plates', id);
-            await updateDoc(ref, {
-              plate: editedPlate.trim().toUpperCase(),
-              owner: editedOwner.trim(),
-            });
-            setEditingId(null);
-            fetchPlates();
-          },
+    Alert.alert('Emin misiniz?', 'Bu plakayı güncellemek istediğinize emin misiniz?', [
+      { text: 'İptal', style: 'cancel' },
+      {
+        text: 'Evet',
+        onPress: async () => {
+          const ref = doc(db, 'plates', id);
+          await updateDoc(ref, {
+            plate: editedPlate.trim().toUpperCase(),
+            owner: editedOwner.trim(),
+          });
+          setEditingId(null);
+          fetchPlates();
         },
-      ]
-    );
+      },
+    ]);
   };
 
+  // Silme işlemi
   const handleDelete = (id: string) => {
-    Alert.alert(
-      'Emin misiniz?',
-      'Bu plakayı silmek istediğinize emin misiniz?',
-      [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Sil', style: 'destructive', onPress: async () => {
-            const ref = doc(db, 'plates', id);
-            await deleteDoc(ref);
-            fetchPlates();
-          },
+    Alert.alert('Emin misiniz?', 'Bu plakayı silmek istediğinize emin misiniz?', [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Sil',
+        style: 'destructive',
+        onPress: async () => {
+          const ref = doc(db, 'plates', id);
+          await deleteDoc(ref);
+          fetchPlates();
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
     <Modal visible={visible} animationType="slide">
       <View style={[styles.container, { backgroundColor: dark ? '#121212' : '#fff' }]}>
         <Text style={[styles.title, { color: dark ? '#fff' : '#000' }]}>🛠️ Kayıtları Düzenle</Text>
+
+        {/* Plakaları listeleyen FlatList */}
         <FlatList
           data={plates}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) =>
             editingId === item.id ? (
+              // Düzenleme modu
               <View style={styles.item}>
                 <TextInput
-                  style={[styles.input, { color: dark ? '#fff' : '#000', borderColor: dark ? '#666' : '#ccc' }]}
+                  style={[
+                    styles.input,
+                    {
+                      color: dark ? '#fff' : '#000',
+                      borderColor: dark ? '#666' : '#ccc',
+                    },
+                  ]}
                   value={editedPlate}
                   onChangeText={setEditedPlate}
                   placeholder="Plaka"
                   placeholderTextColor={dark ? '#aaa' : '#666'}
                 />
                 <TextInput
-                  style={[styles.input, { color: dark ? '#fff' : '#000', borderColor: dark ? '#666' : '#ccc' }]}
+                  style={[
+                    styles.input,
+                    {
+                      color: dark ? '#fff' : '#000',
+                      borderColor: dark ? '#666' : '#ccc',
+                    },
+                  ]}
                   value={editedOwner}
                   onChangeText={setEditedOwner}
                   placeholder="Ad Soyad"
@@ -154,9 +162,11 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
                 </TouchableOpacity>
               </View>
             ) : (
+              // Normal görünüm
               <View style={styles.item}>
                 <Text style={[styles.text, { color: dark ? '#fff' : '#000' }]}>{item.plate}</Text>
                 <Text style={[styles.text, { color: dark ? '#fff' : '#000' }]}>{item.owner}</Text>
+
                 <TouchableOpacity
                   onPress={() => {
                     setEditingId(item.id);
@@ -166,6 +176,7 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
                 >
                   <Text style={styles.edit}>✏️</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity onPress={() => handleDelete(item.id)}>
                   <Text style={styles.delete}>🗑️</Text>
                 </TouchableOpacity>
@@ -173,13 +184,16 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
                 <TouchableOpacity onPress={() => handleBlacklist(item.id, item.plate)}>
                   <Text style={{ color: 'red', marginLeft: 10 }}>🚫</Text>
                 </TouchableOpacity>
-
               </View>
             )
           }
         />
 
-        <TouchableOpacity style={[styles.closeButton, { backgroundColor: dark ? '#444' : '#555' }]} onPress={onClose}>
+        {/* Modalı kapatma butonu */}
+        <TouchableOpacity
+          style={[styles.closeButton, { backgroundColor: dark ? '#444' : '#555' }]}
+          onPress={onClose}
+        >
           <Text style={styles.closeButtonText}>Kapat</Text>
         </TouchableOpacity>
       </View>
@@ -187,6 +201,7 @@ export default function EditPlatesModal({ visible, onClose }: Props) {
   );
 }
 
+// Stil tanımları
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -205,7 +220,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    flexWrap: 'wrap',
   },
   text: {
     flex: 1,

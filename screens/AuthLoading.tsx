@@ -9,8 +9,11 @@ export default function AuthLoading() {
   const navigation = useNavigation<any>();
 
   useEffect(() => {
+    // Kullanıcının oturum durumu kontrol edilir
     const checkLogin = async () => {
       const logged = await isLoggedIn();
+
+      // Kullanıcı giriş yapmışsa "Home" ekranına, yapmamışsa "Login" ekranına yönlendirilir
       navigation.reset({
         index: 0,
         routes: [{ name: logged ? 'Home' : 'Login' }],
@@ -20,6 +23,7 @@ export default function AuthLoading() {
     checkLogin();
   }, []);
 
+  // Yüklenme animasyonu gösterilir
   return (
     <View style={styles.container}>
       <ActivityIndicator size="large" color="#007bff" />
@@ -27,6 +31,7 @@ export default function AuthLoading() {
   );
 }
 
+// Stil tanımları
 const styles = StyleSheet.create({
   container: {
     flex: 1,

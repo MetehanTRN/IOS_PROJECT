@@ -1,110 +1,84 @@
 import React, { useState, useEffect } from "react";
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from "react-native";
-import { addDoc, collection, deleteDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, getDoc, doc, setDoc, query, where, getDocs, deleteDoc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { useTheme } from "react-native-paper";
 
-// Modal bileşenine dışarıdan gelen parametreler
-interface AddPlateModalProps {
+// Modal bileşeni için props tanımları
+interface AddToBlacklistModalProps {
   visible: boolean;
   onClose: () => void;
   defaultPlate?: string;
-  readonlyPlate?: boolean;
-  removeFromBlacklist?: boolean;
 }
 
-// Plaka verisini normalize eden yardımcı fonksiyon
+// Plaka yazımını normalize eden yardımcı fonksiyon
 const normalizePlate = (plate: string) => plate.replace(/\s/g, "").toUpperCase();
 
-const AddPlateModal: React.FC<AddPlateModalProps> = ({
-  visible,
-  onClose,
-  defaultPlate,
-  readonlyPlate,
-  removeFromBlacklist
-}) => {
+const AddToBlacklistModal: React.FC<AddToBlacklistModalProps> = ({ visible, onClose, defaultPlate }) => {
   const [plate, setPlate] = useState("");
-  const [owner, setOwner] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const { dark } = useTheme();
 
-  // Modal açıldığında inputlar sıfırlanır
+  // Modal açıldığında varsayılan plakayı al ve hata mesajını sıfırla
   useEffect(() => {
     if (visible) {
       setPlate(defaultPlate || "");
-      setOwner("");
       setErrorMessage("");
     }
   }, [visible, defaultPlate]);
 
-  // Plaka ekleme işlemini yöneten fonksiyon
+  // Ekleme işlemini gerçekleştiren fonksiyon
   const handleAdd = async () => {
     const trimmedPlate = normalizePlate(plate);
 
-    // Alanlar boşsa uyarı ver
-    if (!trimmedPlate || !owner) {
-      setErrorMessage("Plaka ve isim boş bırakılamaz.");
+    if (!trimmedPlate) {
+      setErrorMessage("Plaka boş bırakılamaz.");
       return;
     }
 
-    // Plaka zaten kayıtlı mı kontrol et
-    const existingPlateQuery = query(collection(db, "plates"), where("plate", "==", trimmedPlate));
-    const existingPlateSnap = await getDocs(existingPlateQuery);
+    // Plaka daha önce sistemde kayıtlı mı kontrol et
+    const plateQuery = query(collection(db, "plates"), where("plate", "==", trimmedPlate));
+    const plateSnap = await getDocs(plateQuery);
 
-    if (!existingPlateSnap.empty) {
-      setErrorMessage("⚠️ Bu plaka zaten kayıtlı.");
-      return;
-    }
-
-    // Kara listede mi kontrol et
-    const blacklistQuery = query(collection(db, "blacklist"), where("plate", "==", trimmedPlate));
-    const blacklistSnap = await getDocs(blacklistQuery);
-
-    if (!blacklistSnap.empty) {
-      // Kara listede ise kullanıcıya uyarı göster
+    if (!plateSnap.empty) {
+      // Kullanıcıya uyarı ver ve onaylarsa sistemden silip kara listeye ekle
       Alert.alert(
-        "Kara Liste Uyarısı",
-        "Bu plaka kara listededir. Çıkarmak ve sisteme kaydetmek ister misiniz?",
+        "Zaten Kayıtlı",
+        "Bu plaka zaten sistemde kayıtlı. Kara listeye taşımak ve sistemden silmek ister misiniz?",
         [
           { text: "Hayır", style: "cancel" },
           {
             text: "Evet",
             onPress: async () => {
-              // Kara listeden sil ve sisteme ekle
-              await deleteDoc(blacklistSnap.docs[0].ref);
-              await addDoc(collection(db, "plates"), {
+              await deleteDoc(plateSnap.docs[0].ref);
+              await setDoc(doc(db, "blacklist", trimmedPlate), {
                 plate: trimmedPlate,
-                owner,
                 createdAt: new Date(),
               });
               onClose();
-            }
-          }
+            },
+          },
         ]
       );
-      return; // Alert sonrasında işlemi bitir
+      return;
     }
 
-    // Kara listede değilse direkt ekle
-    await addDoc(collection(db, "plates"), {
+    // Plaka zaten kara listede varsa uyarı göster
+    const docRef = doc(db, "blacklist", trimmedPlate);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      setErrorMessage("⚠️ Bu plaka zaten kara listede kayıtlı.");
+      return;
+    }
+
+    // Plakayı kara listeye ekle
+    await setDoc(docRef, {
       plate: trimmedPlate,
-      owner,
       createdAt: new Date(),
     });
 
-    // Opsiyonel olarak kara listeden sil
-    if (removeFromBlacklist) {
-      const removeQuery = query(collection(db, "blacklist"), where("plate", "==", trimmedPlate));
-      const snapshot = await getDocs(removeQuery);
-
-      for (const docItem of snapshot.docs) {
-        await deleteDoc(docItem.ref);
-      }
-    }
-
-    // Formu temizle ve modalı kapat
     setPlate("");
-    setOwner("");
     setErrorMessage("");
     onClose();
   };
@@ -113,33 +87,13 @@ const AddPlateModal: React.FC<AddPlateModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={[styles.container, { backgroundColor: dark ? "#1e1e1e" : "#fff" }]}>
-          <Text style={[styles.title, { color: dark ? "#fff" : "#000" }]}>Plaka Ekle</Text>
+          <Text style={[styles.title, { color: dark ? "#fff" : "#000" }]}>Kara Listeye Ekle</Text>
 
-          {/* Plaka input alanı */}
           <TextInput
             placeholder="Plaka"
             placeholderTextColor={dark ? "#999" : "#aaa"}
             value={plate}
             onChangeText={setPlate}
-            editable={!readonlyPlate}
-            style={[
-              styles.input,
-              {
-                backgroundColor: readonlyPlate
-                  ? dark ? "#2a2a2a" : "#eee"
-                  : dark ? "#333" : "#fff",
-                color: dark ? "#fff" : "#000",
-                borderColor: dark ? "#555" : "#ccc",
-              },
-            ]}
-          />
-
-          {/* İsim input alanı */}
-          <TextInput
-            placeholder="İsim"
-            placeholderTextColor={dark ? "#999" : "#aaa"}
-            value={owner}
-            onChangeText={setOwner}
             style={[
               styles.input,
               {
@@ -150,10 +104,8 @@ const AddPlateModal: React.FC<AddPlateModalProps> = ({
             ]}
           />
 
-          {/* Hata mesajı */}
           {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
-          {/* Butonlar */}
           <View style={styles.buttonRow}>
             <TouchableOpacity onPress={onClose} style={[styles.cancelButton, { backgroundColor: dark ? "#555" : "#ccc" }]}>
               <Text style={styles.buttonText}>Geri</Text>
@@ -168,7 +120,7 @@ const AddPlateModal: React.FC<AddPlateModalProps> = ({
   );
 };
 
-export default AddPlateModal;
+export default AddToBlacklistModal;
 
 // Stil tanımları
 const styles = StyleSheet.create({

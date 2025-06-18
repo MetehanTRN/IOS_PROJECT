@@ -1,3 +1,4 @@
-export function normalizePlate(input: string): string {
-  return input.replace(/\s+/g, '').toUpperCase();
-}
+// Plakaları tek bir formata getirir
+
+export const normalizePlate = (plate: string) =>
+  plate.replace(/\s/g, '').toUpperCase();

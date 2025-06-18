@@ -2,61 +2,63 @@ import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, FlatList, Dimensions } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { db } from '../firebaseConfig';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { query, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
 
+// Modal için prop tanımları
 interface LogModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
 export default function LogModal({ visible, onClose }: LogModalProps) {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]); // Firebase'den çekilen loglar
   const { dark } = useTheme();
 
   useEffect(() => {
     if (visible) {
+      // Firestore'dan son 15 giriş/çıkışı çek
       const q = query(
         collection(db, "entries"),
         orderBy("timestamp", "desc"),
         limit(15)
       );
 
+      // Gerçek zamanlı dinleyici
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const logsData = snapshot.docs.map((doc) => doc.data());
         setLogs(logsData);
       });
 
+      // Modal kapandığında dinleyiciyi iptal et
       return () => unsubscribe();
     }
   }, [visible]);
 
+  // Ekran yüksekliğinin %80'ini geçmesin
   const windowHeight = Dimensions.get('window').height;
-  const maxHeight = windowHeight * 0.8; // Modal yüksekliği ekranın %80'ini geçmesin
+  const maxHeight = windowHeight * 0.8;
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={[styles.overlay, { backgroundColor: dark ? '#000000aa' : '#00000088' }]}>
         <View style={[styles.container, { backgroundColor: dark ? '#1e1e1e' : '#fff', maxHeight }]}>
           <Text style={[styles.title, { color: dark ? '#fff' : '#000' }]}>Giriş/Çıkış Kayıtları</Text>
+
+          {/* Giriş/çıkış kayıtlarını listele */}
           <FlatList
             data={logs}
             renderItem={({ item }) => (
-              <View
-                style={[
-                  styles.logEntry,
-                  {
-                    backgroundColor: dark ? '#333' : '#f4f4f4',
-                  },
-                ]}
-              >
+              <View style={[styles.logEntry, { backgroundColor: dark ? '#333' : '#f4f4f4' }]}>
                 <Text style={{ color: dark ? '#ddd' : '#333' }}>Plaka: {item.plate}</Text>
-                <Text style={{ color: dark ? '#ddd' : '#333' }}>Giriş Zamanı: {item.timestamp?.toDate().toString()}</Text>
+                <Text style={{ color: dark ? '#ddd' : '#333' }}>
+                  Giriş Zamanı: {item.timestamp?.toDate().toString()}
+                </Text>
               </View>
             )}
-            keyExtractor={(item, index) => index.toString()}
+            keyExtractor={(_, index) => index.toString()}
           />
 
+          {/* Kapat butonu */}
           <View style={styles.buttons}>
             <TouchableOpacity
               style={[styles.cancelButton, { backgroundColor: dark ? '#555' : '#ccc' }]}
@@ -71,6 +73,7 @@ export default function LogModal({ visible, onClose }: LogModalProps) {
   );
 }
 
+// Stil tanımları
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -80,8 +83,6 @@ const styles = StyleSheet.create({
   container: {
     padding: 20,
     width: '85%',
-    marginTop: 0,
-    marginBottom: 0,
     borderRadius: 10,
   },
   title: {
@@ -93,7 +94,6 @@ const styles = StyleSheet.create({
   logEntry: {
     padding: 10,
     marginBottom: 10,
-    backgroundColor: '#f4f4f4',
     borderRadius: 8,
   },
   buttons: {

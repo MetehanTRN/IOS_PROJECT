@@ -17,7 +17,7 @@ export default function LoginScreen() {
   const navigation = useNavigation<any>();
   const { dark } = useTheme();
 
-  // State tanımları
+  // Kullanıcı giriş bilgileri ve UI durumları için state'ler
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,7 +26,7 @@ export default function LoginScreen() {
   const [usernameError, setUsernameError] = useState(false);
   const [passwordError, setPasswordError] = useState(false);
 
-  // Giriş işlemi
+  // Giriş işlemini gerçekleştiren fonksiyon
   const handleLogin = async () => {
     setError('');
     setUsernameError(false);
@@ -51,10 +51,12 @@ export default function LoginScreen() {
 
     setLoading(true);
 
+    // Basit kullanıcı adı ve şifre kontrolü (örnek amaçlı)
     if (username === 'admin' && password === '1234') {
-      await setLoggedIn();
-      navigation.navigate('Home');
+      await setLoggedIn(); // AsyncStorage'a login durumu kaydedilir
+      navigation.navigate('Home'); // Ana ekrana yönlendirme
     } else {
+      // Hatalı girişlerde özel mesaj gösterimi
       if (username !== 'admin' && password !== '1234') {
         setError('Kullanıcı adı ve şifre yanlış.');
         setUsernameError(true);
@@ -82,10 +84,8 @@ export default function LoginScreen() {
         </View>
       ) : null}
 
-      {/* Kullanıcı adı input */}
-      <View
-        style={[styles.inputWrapper, usernameError && styles.inputError]}
-      >
+      {/* Kullanıcı adı input alanı */}
+      <View style={[styles.inputWrapper, usernameError && styles.inputError]}>
         <MaterialIcons name="person" size={20} color="#555" style={styles.icon} />
         <TextInput
           placeholder="Kullanıcı Adı"
@@ -96,10 +96,8 @@ export default function LoginScreen() {
         />
       </View>
 
-      {/* Şifre input */}
-      <View
-        style={[styles.inputWrapper, passwordError && styles.inputError]}
-      >
+      {/* Şifre input alanı */}
+      <View style={[styles.inputWrapper, passwordError && styles.inputError]}>
         <MaterialIcons name="lock" size={20} color="#555" style={styles.icon} />
         <TextInput
           placeholder="Şifre"

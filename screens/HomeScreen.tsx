@@ -1,6 +1,6 @@
-// Home ekranı temaya uyumlu stiller + çıkış tuşu vurgusu eklendi
+
 import React, { useEffect, useState } from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Alert, Button} from 'react-native';
 import { db } from '../firebaseConfig';
 import {onSnapshot, query, orderBy, limit, getDoc, deleteDoc} from 'firebase/firestore';
 import { useTheme, Switch, Avatar, Menu, IconButton } from 'react-native-paper';
@@ -10,10 +10,8 @@ import LogModal from '../components/LogModal';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { setLoggedOut } from '../utils/authStorage';
 import { useNavigation } from '@react-navigation/native';
-import { Image } from 'react-native';
 import { recognizePlate } from '../utils/plateRecognizer';
 import { collection, getDocs, addDoc, serverTimestamp, where } from 'firebase/firestore';
-import * as ImagePicker from 'expo-image-picker';
 import { useRef } from 'react';
 import imageList from '../assets/test-plates/testImages.json';
 import { imageMap } from '../imageMap';
@@ -21,6 +19,9 @@ import BlackListModal from '../components/BlackListModal';
 import { setDoc, doc } from "firebase/firestore";
 import * as FileSystem from 'expo-file-system';
 import { normalizePlate } from '../utils/normalizePlate';
+import AddOptionModal from '../components/AddOptionModal';
+import AddToBlacklistModal from "../components/AddToBlacklistModal";
+import { Image } from 'react-native';
 
 const screenWidth = Dimensions.get('window').width;
 const cardWidth = (screenWidth - 60) / 2;
@@ -41,10 +42,17 @@ export default function HomeScreen() {
   const [selectedPlate, setSelectedPlate] = useState('');
   const [pendingPlates, setPendingPlates] = useState<string[]>([]);
   const [isAskingUser, setIsAskingUser] = useState(false);
-  const testImages = imageList.map(name => imageMap[name]).filter(Boolean);
+  const testImages = imageList.filter(Boolean);
   const [blacklistModalVisible, setBlacklistModalVisible] = useState(false);
   const [blacklistedPlates, setBlacklistedPlates] = useState<string[]>([]);
   const [blacklistCount, setBlacklistCount] = useState(0);
+  const [addOptionVisible, setAddOptionVisible] = useState(false);
+  const [addBlacklistModalVisible, setAddBlacklistModalVisible] = useState(false);
+  const [selectAddModalVisible, setSelectAddModalVisible] = useState(false);
+  const [addPlateModalVisible, setAddPlateModalVisible] = useState(false);
+  const [defaultPlate, setDefaultPlate] = useState<string | undefined>(undefined);
+  const [readonlyPlate, setReadonlyPlate] = useState<boolean>(false);
+  const [removeFromBlacklist, setRemoveFromBlacklist] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'plates'), (snapshot) => {
@@ -182,6 +190,8 @@ export default function HomeScreen() {
             onPress: () => {
               setSelectedPlate(plate);
               setAddModalVisible(true);
+              setDefaultPlate(plate); // Uyarıda gösterilen plakayı al
+              setReadonlyPlate(true); // Plaka değiştirilemesin
               // modal kapanınca kalanlar gösterilecek
             },
           },
@@ -194,6 +204,8 @@ export default function HomeScreen() {
     await setLoggedOut();
     navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   };
+
+  
 
   const recognizeSamplePlates = async () => {
 
@@ -223,72 +235,82 @@ export default function HomeScreen() {
     }
 
     for (let i = 0; i < testImages.length; i++) {
-      const image = testImages[i];
-      const uri = Image.resolveAssetSource(image).uri;
-      const response = await fetch(uri);
-      const blob = await response.blob();
+        const fileName = testImages[i];
+        const filePath = FileSystem.documentDirectory + "test-plates/" + fileName;
 
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(blob);
-      });
+        const fileInfo = await FileSystem.getInfoAsync(filePath);
 
-      const result = await recognizePlate(base64);
-      const plate = result?.results?.[0]?.plate;
-      const normalizedPlate = normalizePlate(plate);
+        let base64: string;
+        let uri: string;
 
-      // 🔁 Daha önce bu resim işlenmiş mi kontrol et
-      const fileName = image.name || `plate${i + 1}.jpg`; // image.name gelmiyorsa sırayla ver
-      const processedRef = doc(db, "processed_images", fileName);
-      const processedSnap = await getDoc(processedRef);
+        if (fileInfo.exists) {
+          // Yeni dosya cihazda var, base64'ü buradan oku
+          const base64Data = await FileSystem.readAsStringAsync(filePath, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
 
-      if (processedSnap.exists()) {
-        console.log("✅ Zaten işlenmiş:", fileName);
-        continue; // bu resmi atla
-      }
+          const mime = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+          base64 = `data:${mime};base64,${base64Data}`;
+          uri = filePath;
 
-      // ✅ Yeni işlenmişse Firestore’a ekle
-      await setDoc(processedRef, {
-        name: fileName,
-        timestamp: serverTimestamp(),
-      });
+        } else {
+          // Yeni dosya yok, eski bundle dosyasından oku
+          const image = imageMap[fileName];
+          uri = Image.resolveAssetSource(image).uri;
 
+          const response = await fetch(uri);
+          const blob = await response.blob();
 
-      if (blacklistedPlates.some(p => normalizePlate(p) === normalizedPlate)) {
-        console.log("⛔ Kara listede, geçiliyor:", plate);
-        continue; // veya return if içinde
-      }
+          base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+        }
 
+        // API çağrısı
+        const result = await recognizePlate(base64, uri);
+        const plate = result?.results?.[0]?.plate;
+        const normalizedPlate = normalizePlate(plate);
 
-      if (plate) {
+        const processedRef = doc(db, "processed_images", fileName);
+        const processedSnap = await getDoc(processedRef);
+        if (processedSnap.exists()) {
+          console.log("✅ Zaten işlenmiş:", fileName);
+          continue;
+        }
 
-        if (blacklistedPlates.some(p => normalizePlate(p) === normalizedPlate)) {
-          console.log("⛔ Kara listede, işlenmiyor:", plate);
-          continue; 
-        }// bu resmi atla
-        
-        const platesSnapshot = await getDocs(collection(db, 'plates'));
-        const matched = platesSnapshot.docs.find((doc) =>
-          normalizePlate(doc.data().plate) === normalizedPlate
-        );
-
-
-        const status = matched ? 'Giriş Başarılı' : 'Erişim Reddedildi';
-
-        await addDoc(collection(db, 'entries'), {
-          plate,
+        await setDoc(processedRef, {
+          name: fileName,
           timestamp: serverTimestamp(),
-          status,
         });
 
-        if (!matched) {
-          setPendingPlates((prev) => [...prev, plate]);
+        if (blacklistedPlates.some(p => normalizePlate(p) === normalizedPlate)) {
+          console.log("⛔ Kara listede, geçiliyor:", plate);
+          continue;
         }
-      }
 
-      await new Promise((r) => setTimeout(r, 2000)); // her işlem arasında bekle
-    }
+        if (plate) {
+          const platesSnapshot = await getDocs(collection(db, 'plates'));
+          const matched = platesSnapshot.docs.find((doc) =>
+            normalizePlate(doc.data().plate) === normalizedPlate
+          );
+
+          const status = matched ? 'Giriş Başarılı' : 'Giriş Reddedildi';
+
+          await addDoc(collection(db, 'entries'), {
+            plate,
+            timestamp: serverTimestamp(),
+            status,
+          });
+
+          if (!matched) {
+            setPendingPlates((prev) => [...prev, plate]);
+          }
+        }
+
+        await new Promise((r) => setTimeout(r, 2000));
+      }
   };
 
 
@@ -357,7 +379,7 @@ export default function HomeScreen() {
 
 
         <View style={styles.cardRow}>
-          <TouchableOpacity onPress={() => setAddModalVisible(true)}>
+          <TouchableOpacity onPress={() => setAddOptionVisible(true)}>
             <View style={[styles.cardButton, { width: cardWidth, backgroundColor: dark ? '#1e1e1e' : '#ffffff' }]}> 
               <Text style={[styles.cardIcon, { color: dark ? '#fff' : '#000' }]}>➕</Text>
               <Text style={[styles.cardLabel, { color: dark ? '#fff' : '#000' }]}>Plaka Ekle</Text>
@@ -385,15 +407,45 @@ export default function HomeScreen() {
               <Text style={[styles.cardLabel, { color: dark ? '#fff' : '#000' }]}>Giriş-Çıkış Logları</Text>
             </View>
           </TouchableOpacity>
+                
+        <AddOptionModal
+          visible={addOptionVisible}
+          onClose={() => setAddOptionVisible(false)}
+          onAddPlate={() => {
+            setAddOptionVisible(false);
+            setAddModalVisible(true); // mevcut modal'ı açıyorsan bu zaten tanımlıdır
+          }}
+          onAddBlacklist={() => {
+            setAddOptionVisible(false);
+            setAddBlacklistModalVisible(true); // ✅ doğru modal'ı açıyoruz
+          }}
+        />
+
+        <AddToBlacklistModal
+          visible={addBlacklistModalVisible}
+          onClose={() => {
+            setAddBlacklistModalVisible(false);
+            setAddOptionVisible(true);
+            }
+          }
+        />
+
+
 
         <AddPlateModal
           visible={addModalVisible}
           onClose={() => {
             setAddModalVisible(false);
+            setAddOptionVisible(true);
             setPendingPlates((prev) => prev.slice(1));
             setIsAskingUser(false);
+            setDefaultPlate(undefined);
+            setReadonlyPlate(false);
+            setRemoveFromBlacklist(false);
           }}
-          prefillPlate={selectedPlate}
+          defaultPlate={defaultPlate}
+          readonlyPlate={readonlyPlate}
+          removeFromBlacklist={removeFromBlacklist}
         />        
         <EditPlatesModal visible={editModalVisible} onClose={() => setEditModalVisible(false)} />
         <LogModal visible={logModalVisible} onClose={() => setLogModalVisible(false)} />
@@ -404,6 +456,9 @@ export default function HomeScreen() {
           onSelectToAdd={(plate) => {
             setSelectedPlate(plate);
             setAddModalVisible(true);
+            setDefaultPlate(plate);
+            setReadonlyPlate(true);
+            setRemoveFromBlacklist(true);
           }}
         />
 
